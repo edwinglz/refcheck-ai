@@ -256,29 +256,29 @@ if analyze_button:
 
             st.divider()
 
-            with st.expander("View raw AI response"):
-                st.json(result)
+            # with st.expander("View raw AI response"):
+            #     st.json(result)
 
             # Confidence badge
             st.markdown(f"**Confidence:** {confidence}")
 
-            st.divider()
+    #        st.divider()
 
-            # Reasoning
-            st.markdown("### 📋 Reasoning")
-            st.write(reasoning)
+            # # Reasoning
+            # st.markdown("### 📋 Reasoning")
+            # st.write(reasoning)
 
-            # Rule cited
-            st.markdown("### 📖 Rule Applied")
-            st.info(rule_cited)
+            # # Rule cited
+            # st.markdown("### 📖 Rule Applied")
+            # st.info(rule_cited)
 
-            # Card recommendation
-            if card == "Yellow":
-                st.markdown("### 🟨 Card Recommendation: Yellow Card")
-            elif card == "Red":
-                st.markdown("### 🟥 Card Recommendation: Red Card")
-            elif card == "None":
-                st.markdown("### Card Recommendation: None")
+            # # Card recommendation
+            # if card == "Yellow":
+            #     st.markdown("### 🟨 Card Recommendation: Yellow Card")
+            # elif card == "Red":
+            #     st.markdown("### 🟥 Card Recommendation: Red Card")
+            # elif card == "None":
+            #     st.markdown("### Card Recommendation: None")
 
             st.divider()
 

@@ -56,77 +56,81 @@ def extract_frames(video_path, max_frames=10):
 
 FIFA_RULES = """
 You are an expert FIFA-certified soccer referee with 20 years of experience.
-You are analyzing video frames from a soccer match to determine whether a foul occurred.
+Your only job is to analyze video frames and return a JSON verdict.
 
-OFFICIAL FIFA LAWS OF THE GAME — KEY FOUL RULES (Law 12):
+FIFA LAW 12 — FOULS:
+A foul occurs when a player:
+- Contacts opponent before ball in a tackle
+- Trips, pushes, holds, or charges an opponent
+- Jumps at or strikes an opponent
+- Handles ball deliberately (not goalkeeper)
 
-A direct free kick is awarded if a player commits any of the following offences:
-- Kicks or attempts to kick an opponent
-- Trips or attempts to trip an opponent (including sliding tackles that hit the player before or instead of the ball)
-- Jumps at an opponent
-- Charges an opponent in a careless, reckless, or using excessive force manner
-- Strikes or attempts to strike an opponent
-- Pushes an opponent
-- Makes contact with the opponent before the ball during a tackle
-- Holds an opponent
-- Impedes an opponent with or without contact
-- Handball: deliberately handles the ball (except the goalkeeper in their own area)
+CARD RULES — be strict:
+- No card: minor or careless foul only
+- Yellow: reckless challenge, late tackle, tactical foul, diving/simulation
+- Red: studs up into opponent, two-footed lunge, violent conduct, 
+  excessive force that endangers safety, denying obvious goal (DOGSO)
+  
+If you see studs raised, a two-footed lunge, or a player endangered — it is RED. Not yellow.
 
-SEVERITY DEFINITIONS:
-- Careless: no special attention needed, just a foul
-- Reckless: player shows disregard for danger — yellow card
-- Excessive force: endangers opponent — red card
+SIMULATION:
+If a player falls dramatically with no contact visible — this is a dive. 
+Call it a foul against the diving player with a yellow card.
 
-KEY PRINCIPLES FOR YOUR ANALYSIS:
-- If a player wins the ball cleanly first, it is generally NOT a foul even if the opponent falls
-- Shoulder-to-shoulder charging is legal if the ball is within playing distance
-- Incidental contact that does not affect play is generally not a foul
-- Simulation (diving) should be noted if evident
-- Consider the angle, momentum, and body position of both players
-- If the video frames are too blurry, too far away, or the angle is poor, return Inconclusive
+INCONCLUSIVE rules — return Inconclusive if:
+- The contact point is not visible in any frame
+- Players are too small or too far from camera to judge
+- Fewer than 3 frames show the relevant moment
 
-YOUR RESPONSE FORMAT — you must return exactly this JSON structure and nothing else:
-{
-  "verdict": "Fair Call" or "Bad Call" or "Inconclusive",
-  "confidence": "High" or "Medium" or "Low",
-  "reasoning": "2-3 sentences explaining what you saw and which rule applies",
-  "rule_cited": "The specific FIFA Law 12 rule that applies",
-  "card_recommendation": "None" or "Yellow" or "Red" or "N/A"
-}
+OUTPUT RULES:
+- Return ONLY a raw JSON object
+- No markdown, no code fences, no text before or after the JSON
+- Start your response with { and end with }
 """
 
 def analyze_clip(frames_b64, original_call="Not provided"):
-    """
-    Sends extracted frames to GPT-4o along with the FIFA rulebook prompt.
-    Returns a dictionary with verdict, confidence, reasoning, and rule cited.
-    """
     client = OpenAI()
+    import json
 
-    actual_call = original_call if original_call != "Not sure / not provided" else "Unknown — do not factor this into your verdict"
+    actual_call = original_call if original_call != "Not sure / not provided" else "Unknown"
 
-    content = [
+    # Step 1 — ask the model to analyze the play with no knowledge of the call
+    analysis_content = [
         {
             "type": "text",
-            "text": f"""Analyze these video frames from a soccer match.
+            "text": """You are reviewing sports officiating footage for a referee training tool.
 
-Original referee call: {actual_call}
+Analyze these frames from a soccer match and return a technical assessment.
 
-Look at all the frames carefully and determine:
-1. What physical interaction or play is happening between the players?
-2. Does it match any of the foul criteria in the rules?
-3. Was the original referee call correct, incorrect, or is there not enough information?
+Observe and report:
+- Player positions and movement
+- Where the ball is relative to player contact
+- Body position and balance of both players
+- Whether contact occurs before or after ball possession changes
+- Any loss of balance or falling by either player
 
-IMPORTANT: Base your verdict purely on what you observe in the frames.
-Do not simply agree with the original call. If the original call is
-unknown, analyze the play entirely on its own merits and only return
-Fair Call if you can clearly see no foul occurred.
+Based on your observations, classify the interaction:
+- is_foul: did illegal contact occur under standard rules?
+- is_simulation: did a player fall without clear contact?
+- severity: none / careless / reckless / excessive_force
+- card: None / Yellow / Red
+- visible: could you clearly see the contact point?
+- description: one technical sentence summarizing what occurred
 
-Return only the JSON verdict as instructed. No extra text."""
+Return ONLY this JSON, starting with { and ending with }, no other text:
+{
+  "is_foul": true or false,
+  "is_simulation": true or false,
+  "severity": "none" or "careless" or "reckless" or "excessive_force",
+  "card": "None" or "Yellow" or "Red",
+  "visible": true or false,
+  "description": "One sentence describing exactly what you saw"
+}"""
         }
     ]
 
     for b64 in frames_b64:
-        content.append({
+        analysis_content.append({
             "type": "image_url",
             "image_url": {
                 "url": f"data:image/jpeg;base64,{b64}",
@@ -134,35 +138,98 @@ Return only the JSON verdict as instructed. No extra text."""
             }
         })
 
-    response = client.chat.completions.create(
+    analysis_response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": FIFA_RULES},
-            {"role": "user", "content": content}
+            {"role": "user", "content": analysis_content}
         ],
-        max_tokens=500,
+        max_tokens=300,
         temperature=0
     )
 
-    raw = response.choices[0].message.content.strip()
+    raw_analysis = analysis_response.choices[0].message.content.strip()
 
-    import json
     try:
-        clean = raw.strip()
+        clean = raw_analysis.strip()
+        # Strip any markdown fences
         if "```" in clean:
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-        result = json.loads(clean.strip())
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e}")
-        print(f"Raw was: {raw}")
-        result = {
+            parts = clean.split("```")
+            for part in parts:
+                part = part.strip()
+                if part.startswith("json"):
+                    part = part[4:]
+                if part.strip().startswith("{"):
+                    clean = part.strip()
+                    break
+        # Find the JSON object even if there's text around it
+        start = clean.find("{")
+        end = clean.rfind("}") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON object found in response")
+        clean = clean[start:end]
+        analysis = json.loads(clean)
+    except Exception:
+        # Print raw so you can see what the model actually returned
+        print(f"RAW MODEL OUTPUT: {raw_analysis}")
+        return {
             "verdict": "Inconclusive",
             "confidence": "Low",
-            "reasoning": "The AI response could not be parsed. Please try again.",
+            "reasoning": "Could not parse play analysis. Try a clearer video angle.",
             "rule_cited": "N/A",
             "card_recommendation": "N/A"
         }
 
-    return result
+    # Step 2 — use the analysis to build the verdict, now bringing in the original call
+    if not analysis.get("visible", True):
+        verdict = "Inconclusive"
+        confidence = "Low"
+    elif analysis.get("is_simulation"):
+        # Simulation means the ref who called a foul was wrong
+        if actual_call == "Foul called":
+            verdict = "Bad Call"
+        elif actual_call == "No foul called":
+            verdict = "Fair Call"
+        else:
+            verdict = "Bad Call"  # diving should always be penalized
+        confidence = "High"
+    elif analysis.get("is_foul"):
+        if actual_call == "Foul called":
+            verdict = "Fair Call"
+        elif actual_call == "No foul called":
+            verdict = "Bad Call"
+        else:
+            verdict = "Bad Call"  # foul happened regardless
+        confidence = "High" if analysis.get("severity") == "excessive_force" else "Medium"
+    else:
+        # No foul
+        if actual_call == "No foul called":
+            verdict = "Fair Call"
+        elif actual_call == "Foul called":
+            verdict = "Bad Call"
+        else:
+            verdict = "Fair Call"  # no foul, so no call would have been correct
+        confidence = "Medium"
+
+    # Build reasoning from the description
+    description = analysis.get("description", "No description available.")
+    card = analysis.get("card", "None")
+
+    if analysis.get("is_simulation"):
+        rule = "Law 12 — Simulation: a player who attempts to deceive the referee by feigning injury or pretending to have been fouled must be cautioned."
+        reasoning = f"{description} This appears to be simulation. A yellow card should be issued to the diving player."
+    elif analysis.get("is_foul"):
+        severity = analysis.get("severity", "careless")
+        rule = f"Law 12 — {'Excessive force: a red card offence that endangers the opponent.' if severity == 'excessive_force' else 'Reckless challenge: a yellow card offence.' if severity == 'reckless' else 'Careless challenge: a direct free kick offence.'}"
+        reasoning = f"{description} This constitutes a foul under FIFA Law 12."
+    else:
+        rule = "Law 12 — No foul: legal challenge where the ball was won cleanly or contact was incidental."
+        reasoning = f"{description} No foul criteria met under FIFA Law 12."
+
+    return {
+        "verdict": verdict,
+        "confidence": confidence,
+        "reasoning": reasoning,
+        "rule_cited": rule,
+        "card_recommendation": card
+    }
