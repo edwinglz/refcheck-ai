@@ -36,7 +36,7 @@ def extract_frames(video_path, max_frames=10):
         if not success:
             continue
 
-        # Resize to keep things fast — 640px wide is plenty for analysis
+        # Resize to keep things fast, 640px wide is plenty for analysis
         height, width = frame.shape[:2]
         if width > 640:
             scale = 640 / width
@@ -102,7 +102,7 @@ def analyze_clip(frames_b64, original_call="Not provided"):
     """
     client = OpenAI()
 
-    # Build the message content — start with the text prompt
+    # Build the message content. start with the text prompt
     content = [
         {
             "type": "text",
@@ -125,7 +125,7 @@ Return only the JSON verdict as instructed. No extra text."""
             "type": "image_url",
             "image_url": {
                 "url": f"data:image/jpeg;base64,{b64}",
-                "detail": "low"  # saves tokens — good enough for action analysis
+                "detail": "low"  # saves tokens, good for action analysis
             }
         })
 
