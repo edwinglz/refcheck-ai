@@ -1,6 +1,7 @@
 import cv2
 import base64
 import os
+from openai import OpenAI
 
 def extract_frames(video_path, max_frames=10):
     """
@@ -52,4 +53,114 @@ def extract_frames(video_path, max_frames=10):
     video.release()
     print(f"Extracted {len(frames_b64)} frames successfully")
     return frames_b64
+
+FIFA_RULES = """
+You are an expert FIFA-certified soccer referee with 20 years of experience.
+You are analyzing video frames from a soccer match to determine whether a foul occurred.
+
+OFFICIAL FIFA LAWS OF THE GAME — KEY FOUL RULES (Law 12):
+
+A direct free kick is awarded if a player commits any of the following offences:
+- Kicks or attempts to kick an opponent
+- Trips or attempts to trip an opponent (including sliding tackles that hit the player before or instead of the ball)
+- Jumps at an opponent
+- Charges an opponent in a careless, reckless, or using excessive force manner
+- Strikes or attempts to strike an opponent
+- Pushes an opponent
+- Makes contact with the opponent before the ball during a tackle
+- Holds an opponent
+- Impedes an opponent with or without contact
+- Handball: deliberately handles the ball (except the goalkeeper in their own area)
+
+SEVERITY DEFINITIONS:
+- Careless: no special attention needed, just a foul
+- Reckless: player shows disregard for danger — yellow card
+- Excessive force: endangers opponent — red card
+
+KEY PRINCIPLES FOR YOUR ANALYSIS:
+- If a player wins the ball cleanly first, it is generally NOT a foul even if the opponent falls
+- Shoulder-to-shoulder charging is legal if the ball is within playing distance
+- Incidental contact that does not affect play is generally not a foul
+- Simulation (diving) should be noted if evident
+- Consider the angle, momentum, and body position of both players
+- If the video frames are too blurry, too far away, or the angle is poor, return Inconclusive
+
+YOUR RESPONSE FORMAT — you must return exactly this JSON structure and nothing else:
+{
+  "verdict": "Fair Call" or "Bad Call" or "Inconclusive",
+  "confidence": "High" or "Medium" or "Low",
+  "reasoning": "2-3 sentences explaining what you saw and which rule applies",
+  "rule_cited": "The specific FIFA Law 12 rule that applies",
+  "card_recommendation": "None" or "Yellow" or "Red" or "N/A"
+}
+"""
+
+def analyze_clip(frames_b64, original_call="Not provided"):
+    """
+    Sends extracted frames to GPT-4o along with the FIFA rulebook prompt.
+    Returns a dictionary with verdict, confidence, reasoning, and rule cited.
+    """
+    client = OpenAI()
+
+    # Build the message content — start with the text prompt
+    content = [
+        {
+            "type": "text",
+            "text": f"""Analyze these video frames from a soccer match.
+
+Original referee call: {original_call}
+
+Look at all the frames carefully and determine:
+1. What physical interaction or play is happening between the players?
+2. Does it match any of the foul criteria in the rules?
+3. Was the original referee call correct, incorrect, or is there not enough information?
+
+Return only the JSON verdict as instructed. No extra text."""
+        }
+    ]
+
+    # Add each frame as an image
+    for b64 in frames_b64:
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{b64}",
+                "detail": "low"  # saves tokens — good enough for action analysis
+            }
+        })
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": FIFA_RULES},
+            {"role": "user", "content": content}
+        ],
+        max_tokens=500,
+        temperature=0  # keep it consistent, not random
+    )
+
+    raw = response.choices[0].message.content.strip()
+
+    # Parse the JSON response
+    import json
+    try:
+    # Strip markdown code fences if the model added them
+        clean = raw.strip()
+        if "```" in clean:
+            clean = clean.split("```")[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+        result = json.loads(clean.strip())
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}")
+        print(f"Raw was: {raw}")
+        result = {
+            "verdict": "Inconclusive",
+            "confidence": "Low",
+            "reasoning": "The AI response could not be parsed. Please try again.",
+            "rule_cited": "N/A",
+            "card_recommendation": "N/A"
+    }
+
+    return result
 
