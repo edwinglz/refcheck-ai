@@ -102,30 +102,35 @@ def analyze_clip(frames_b64, original_call="Not provided"):
     """
     client = OpenAI()
 
-    # Build the message content. start with the text prompt
+    actual_call = original_call if original_call != "Not sure / not provided" else "Unknown — do not factor this into your verdict"
+
     content = [
         {
             "type": "text",
             "text": f"""Analyze these video frames from a soccer match.
 
-Original referee call: {original_call}
+Original referee call: {actual_call}
 
 Look at all the frames carefully and determine:
 1. What physical interaction or play is happening between the players?
 2. Does it match any of the foul criteria in the rules?
 3. Was the original referee call correct, incorrect, or is there not enough information?
 
+IMPORTANT: Base your verdict purely on what you observe in the frames.
+Do not simply agree with the original call. If the original call is
+unknown, analyze the play entirely on its own merits and only return
+Fair Call if you can clearly see no foul occurred.
+
 Return only the JSON verdict as instructed. No extra text."""
         }
     ]
 
-    # Add each frame as an image
     for b64 in frames_b64:
         content.append({
             "type": "image_url",
             "image_url": {
                 "url": f"data:image/jpeg;base64,{b64}",
-                "detail": "low"  # saves tokens, good for action analysis
+                "detail": "low"
             }
         })
 
@@ -136,15 +141,13 @@ Return only the JSON verdict as instructed. No extra text."""
             {"role": "user", "content": content}
         ],
         max_tokens=500,
-        temperature=0  # keep it consistent, not random
+        temperature=0
     )
 
     raw = response.choices[0].message.content.strip()
 
-    # Parse the JSON response
     import json
     try:
-    # Strip markdown code fences if the model added them
         clean = raw.strip()
         if "```" in clean:
             clean = clean.split("```")[1]
@@ -160,7 +163,6 @@ Return only the JSON verdict as instructed. No extra text."""
             "reasoning": "The AI response could not be parsed. Please try again.",
             "rule_cited": "N/A",
             "card_recommendation": "N/A"
-    }
+        }
 
     return result
-
