@@ -157,7 +157,7 @@ st.markdown("""
 st.markdown("""
 <div class="title-block">
     <h1>📝 RefCheck AI </h1>
-    <p>Your very own AI var — upload a clip and get an instant verdict</p>
+    <p>Your very own AI VAR — upload a clip and get an instant verdict</p>
 </div>
 """, unsafe_allow_html=True)
 
